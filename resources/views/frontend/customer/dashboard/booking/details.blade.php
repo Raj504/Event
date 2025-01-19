@@ -180,9 +180,18 @@
                             </p>
                           @endif
 
-                          <p><b>{{ __('Total Paid') . ' : ' }} </b> <span class="amount"
-                              dir="ltr">{{ $booking->currencySymbol }}{{ $booking->price + $booking->tax }}
-                            </span></p>
+                          <p><b>{{ __('Total Paid') . ' : ' }} </b> 
+                            <span class="amount" dir="ltr">
+                              @if($booking->currencyText == 'INR')
+                                {{ '₹' }} 
+                              @elseif($booking->currencyText == 'USD')
+                                {{ '₹' }} 
+                              @else
+                                {{ $booking->currencySymbol }} 
+                              @endif
+                              {{ number_format($booking->price + $booking->tax, 2) }} 
+                            </span>
+                          </p>
 
                           <p><b>{{ __('Payment Status') . ' : ' }} </b> <span
                               class="badge {{ $booking->paymentStatus == 'completed' ? 'badge-success' : 'badge-danger' }} ">{{ __($booking->paymentStatus) }}</span>
