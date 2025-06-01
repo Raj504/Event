@@ -36,6 +36,7 @@ class AdminController extends Controller
 {
   public function login()
   {
+
     return view('backend.login');
   }
 
@@ -328,6 +329,7 @@ class AdminController extends Controller
 
   public function updateProfile(Request $request)
   {
+   // dd($request->all());
     $admin = Auth::guard('admin')->user();
 
     $rules = [];
@@ -359,7 +361,7 @@ class AdminController extends Controller
     if ($validator->fails()) {
       return redirect()->back()->withErrors($validator->errors());
     }
-
+      //dd("Here");
     if ($request->hasFile('image')) {
       $imageName = UploadFile::update(public_path('assets/admin/img/admins/'), $request->file('image'), $admin->image);
     }
@@ -375,7 +377,7 @@ class AdminController extends Controller
       'details' => $request->details,
     ]);
     Session::flash('success', 'Profile updated successfully!');
-
+      //dd("Saved in DB");
     return redirect()->back();
   }
 

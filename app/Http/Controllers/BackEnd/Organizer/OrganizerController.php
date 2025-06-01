@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
+
 use App\Rules\MatchEmailRule;
 use App\Models\BasicSettings\MailTemplate;
 use App\Models\Event;
@@ -187,42 +189,42 @@ class OrganizerController extends Controller
       $mailBody = str_replace('{website_title}', $info->website_title, $mailBody);
 
       // initialize a new mail
-      $mail = new PHPMailer(true);
-      $mail->CharSet = 'UTF-8';
-      $mail->Encoding = 'base64';
+      // $mail = new PHPMailer(true);
+      // $mail->CharSet = 'UTF-8';
+      // $mail->Encoding = 'base64';
 
-      // if smtp status == 1, then set some value for PHPMailer
-      if ($info->smtp_status == 1) {
+      // // if smtp status == 1, then set some value for PHPMailer
+      // if ($info->smtp_status == 1) {
 
-        $mail->isSMTP();
-        $mail->Host       = $info->smtp_host;
-        $mail->SMTPAuth   = true;
-        $mail->Username   = $info->smtp_username;
-        $mail->Password   = $info->smtp_password;
+      //   $mail->isSMTP();
+      //   $mail->Host       = $info->smtp_host;
+      //   $mail->SMTPAuth   = true;
+      //   $mail->Username   = $info->smtp_username;
+      //   $mail->Password   = $info->smtp_password;
 
-        if ($info->encryption == 'TLS') {
-          $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-        }
+      //   if ($info->encryption == 'TLS') {
+      //     $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+      //   }
 
-        $mail->Port       = $info->smtp_port;
-      }
+      //   $mail->Port = $info->smtp_port;
+      // }
 
       // finally add other informations and send the mail
+      //dd("reached here");
       try {
-        $mail->setFrom($info->from_mail, $info->from_name);
-        $mail->addAddress($request->email);
+        Mail::send([], [], function ($message) use ($request, $mailSubject, $mailBody, $info) {
+          $message->from($info->from_mail, $info->from_name)
+            ->to($request->email)
+            ->subject($mailSubject)
+            ->html($mailBody);
+        });
 
-        $mail->isHTML(true);
-        $mail->Subject = $mailSubject;
-        $mail->Body = $mailBody;
-
-        $mail = $mail->send();
-
-        Session::flash('success', ' Verification mail has been sent to your email address!');
+        Session::flash('success', 'Verification mail has been sent to your email address!');
       } catch (\Exception $e) {
         Session::flash('error', 'Mail could not be sent!');
         return redirect()->back();
       }
+
 
       $in['status'] = 0;
     } else {
@@ -364,7 +366,7 @@ class OrganizerController extends Controller
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
       }
 
-      $mail->Port       = $info->smtp_port;
+      $mail->Port = $info->smtp_port;
     }
 
     // finally add other informations and send the mail
@@ -466,12 +468,10 @@ class OrganizerController extends Controller
   //update_profile
   public function update_profile(Request $request)
   {
-
-
     $rules = [
       'email' => [
         'required',
-        Rule::unique('organizers', 'username')->ignore(Auth::guard('organizer')->user()->id)
+        Rule::unique('organizers', 'email')->ignore(Auth::guard('organizer')->user()->id)
       ],
       'username' => [
         'required',
@@ -479,69 +479,61 @@ class OrganizerController extends Controller
         "not_in:$this->admin_user_name",
         Rule::unique('organizers', 'username')->ignore(Auth::guard('organizer')->user()->id)
       ],
+      'name' => 'required',
+      'designation' => 'required',
+      'country' => 'required',
+      'city' => 'required',
+      'state' => 'required',
+      'zip_code' => 'required',
+      'address' => 'required',
+      'details' => 'required',
     ];
 
-    $languages = Language::get();
-
-    $messages = [];
-
-    foreach ($languages as $language) {
-      $rules[$language->code . '_name'] = 'required';
-      $messages[$language->code . '_name'] = 'The name field is required for ' . $language->name . ' language.';
-    }
-
     if ($request->hasFile('photo')) {
-      $rules['photo']  = 'dimensions:width=300,height=300|mimes:jpg,jpeg,png';
+      $rules['photo'] = 'mimes:jpg,jpeg,png';
     }
 
-    $validator = Validator::make($request->all(), $rules, $messages);
+    $validator = Validator::make($request->all(), $rules);
     if ($validator->fails()) {
-      return Response::json(
-        [
-          'errors' => $validator->getMessageBag()
-        ],
-        400
-      );
+      return Response::json(['errors' => $validator->getMessageBag()], 400);
     }
 
     $in = $request->all();
     $organizer = Organizer::find(Auth::guard('organizer')->user()->id);
-    $file = $request->file('photo');
-    if ($file) {
+
+    if ($request->hasFile('photo')) {
+      $file = $request->file('photo');
       $extension = $file->getClientOriginalExtension();
       $directory = public_path('assets/admin/img/organizer-photo/');
       $fileName = uniqid() . '.' . $extension;
       @mkdir($directory, 0775, true);
       $file->move($directory, $fileName);
-
       @unlink(public_path('assets/admin/img/organizer-photo/') . $organizer->photo);
       $in['photo'] = $fileName;
     }
+
     $organizer->update($in);
 
-    $languages = Language::get();
-    foreach ($languages as $language) {
-      $organizer_info = OrganizerInfo::where('organizer_id', $organizer->id)->where('language_id', $language->id)->first();
-      if (!$organizer_info) {
-        $organizer_info = new OrganizerInfo();
-        $organizer_info->language_id = $language->id;
-        $organizer_info->organizer_id = $organizer->id;
-      }
-      $organizer_info->name = $request[$language->code . '_name'];
-      $organizer_info->designation = $request[$language->code . '_designation'];
-      $organizer_info->country = $request[$language->code . '_country'];
-      $organizer_info->city = $request[$language->code . '_city'];
-      $organizer_info->state = $request[$language->code . '_state'];
-      $organizer_info->zip_code = $request[$language->code . '_zip_code'];
-      $organizer_info->address = $request[$language->code . '_address'];
-      $organizer_info->details = $request[$language->code . '_details'];
-      $organizer_info->save();
+    $organizer_info = OrganizerInfo::where('organizer_id', $organizer->id)->first();
+    if (!$organizer_info) {
+      $organizer_info = new OrganizerInfo();
+      $organizer_info->organizer_id = $organizer->id;
     }
 
-    Session::flash('success', 'Updated Successfully');
+    $organizer_info->name = $request->name;
+    $organizer_info->designation = $request->designation;
+    $organizer_info->country = $request->country;
+    $organizer_info->city = $request->city;
+    $organizer_info->state = $request->state;
+    $organizer_info->zip_code = $request->zip_code;
+    $organizer_info->address = $request->address;
+    $organizer_info->details = $request->details;
+    $organizer_info->save();
 
+    Session::flash('success', 'Updated Successfully');
     return Response::json(['status' => 'success'], 200);
   }
+
   //verify_email
   public function verify_email()
   {
@@ -808,105 +800,110 @@ class OrganizerController extends Controller
 
     return view('organizer.income', $information);
   }
-  
-    // @createPackage
-    public function createPackage(Request $request){
-        $data = [];
-        $packages = DB::table('packages')->where('packages_users', Auth::user()->id)->get();
-        return view('backend.packages.create', compact('packages'));
+
+  // @createPackage
+  public function createPackage(Request $request)
+  {
+    $data = [];
+    $packages = DB::table('packages')->where('packages_users', Auth::user()->id)->get();
+    return view('backend.packages.create', compact('packages'));
+  }
+
+  // @storePackage
+  public function storePackage(Request $request)
+  {
+    $values = [
+      'packages_name' => $request->package_name,
+      'packages_amount' => $request->package_amount,
+      'packages_status' => 1,
+      'packages_users' => Auth::user()->id,
+      'packages_created_on' => date('Y-m-d H:i:s'),
+    ];
+    DB::table('packages')->insert($values);
+    return redirect()->back();
+  }
+
+  // @storePackageMeta
+  public function storePackageMeta(Request $request)
+  {
+    $packageId = $request->package_id;
+    if (!empty($request->meta_value)) {
+      foreach ($request->meta_value as $meta) {
+        if ($meta !== NULL) {
+          $metaValues = [
+            'packages_meta_package_id' => $packageId,
+            'packages_meta_value' => $meta,
+            'packages_meta_status' => 1,
+            'packages_meta_users' => Auth::user()->id,
+            'packages_meta_created_on' => date('Y-m-d H:i:s'),
+          ];
+          DB::table('packages_meta')->insert($metaValues);
+        }
+      }
     }
-    
-    // @storePackage
-    public function storePackage(Request $request){
-        $values = [
-            'packages_name' => $request->package_name, 
-            'packages_amount' => $request->package_amount, 
-            'packages_status' => 1, 
-            'packages_users' => Auth::user()->id, 
-            'packages_created_on' => date('Y-m-d H:i:s'), 
-        ];
-        DB::table('packages')->insert($values);
-        return redirect()->back();
+    return redirect()->back();
+  }
+
+  // @updatePackage
+  public function updatePackage(Request $request)
+  {
+    $packageId = $request->package_id;
+
+    $packageValues = [
+      'packages_name' => $request->package_name,
+      'packages_amount' => $request->package_amount,
+    ];
+    DB::table('packages')->where('packages_id', $packageId)->update($packageValues);
+
+    $items = count($_POST['meta_id']);
+    // echo var_dump($_POST);die;
+    for ($i = 0; $i < $items; $i++) {
+      if ($_POST['meta_value'][$i] !== null) {
+        $metaValues = array(
+          'packages_meta_value' => $_POST['meta_value'][$i]
+        );
+        DB::table('packages_meta')->where('packages_meta_id', $_POST['meta_id'][$i])->update($metaValues);
+      }
     }
-    
-    // @storePackageMeta
-    public function storePackageMeta(Request $request){
-        $packageId = $request->package_id;
-        if(!empty($request->meta_value)){
-			foreach($request->meta_value as $meta){
-				if($meta!==NULL){
-					$metaValues = [
-						'packages_meta_package_id' => $packageId,
-						'packages_meta_value' => $meta,
-						'packages_meta_status' => 1,
-						'packages_meta_users' => Auth::user()->id,
-						'packages_meta_created_on' => date('Y-m-d H:i:s'),
-					];
-					DB::table('packages_meta')->insert($metaValues);
-				}
-			}
-		}
-		return redirect()->back();
+    if (!empty($request->meta_value_edit)) {
+      foreach ($request->meta_value_edit as $meta) {
+        if ($meta !== NULL) {
+          $metaValues = [
+            'packages_meta_package_id' => $packageId,
+            'packages_meta_value' => $meta,
+            'packages_meta_status' => 1,
+            'packages_meta_users' => Auth::user()->id,
+            'packages_meta_created_on' => date('Y-m-d H:i:s'),
+          ];
+          DB::table('packages_meta')->insert($metaValues);
+        }
+      }
     }
-    
-    // @updatePackage
-    public function updatePackage(Request $request){
-        $packageId = $request->package_id;
-        
-        $packageValues = [
-            'packages_name' => $request->package_name, 
-            'packages_amount' => $request->package_amount,
-        ];
-        DB::table('packages')->where('packages_id', $packageId)->update($packageValues);
-        
-        $items = count($_POST['meta_id']);
-		// echo var_dump($_POST);die;
-		for($i = 0; $i < $items; $i++){
-			if($_POST['meta_value'][$i] !== null){
-				$metaValues = array(
-					'packages_meta_value' => $_POST['meta_value'][$i]
-				);
-				DB::table('packages_meta')->where('packages_meta_id', $_POST['meta_id'][$i])->update($metaValues);
-			}
-		}
-		if(!empty($request->meta_value_edit)){
-			foreach($request->meta_value_edit as $meta){
-				if($meta!==NULL){
-					$metaValues = [
-						'packages_meta_package_id' => $packageId,
-						'packages_meta_value' => $meta,
-						'packages_meta_status' => 1,
-						'packages_meta_users' => Auth::user()->id,
-						'packages_meta_created_on' => date('Y-m-d H:i:s'),
-					];
-					DB::table('packages_meta')->insert($metaValues);
-				}
-			}
-		}
-		return redirect()->back();
-    }
-    
-    // @removePackageData
-    public function removePackageData(Request $request){
-        $id = $request->id;
-        DB::table('packages_meta')->where('packages_meta_id', $id)->delete();
-    }
-    
-    // @viewPackageData
-    public function viewPackageData(Request $request){
-        $id = $request->id;
-        $package = DB::table('packages')->where('packages_id', $id)->first();
-        $packageMetas = DB::table('packages_meta')->where('packages_meta_package_id', $id)->get();
-        return view('backend.packages.view-package-data-modal', compact('package', 'packageMetas'));
-    }
-    
-    // @editPackageData
-    public function editPackageData(Request $request){
-        $id = $request->id;
-        $package = DB::table('packages')->where('packages_id', $id)->first();
-        $packageMetas = DB::table('packages_meta')->where('packages_meta_package_id', $id)->get();
-        return view('backend.packages.edit-package-data-modal', compact('package', 'packageMetas'));
-    }
-    
-    
+    return redirect()->back();
+  }
+
+  // @removePackageData
+  public function removePackageData(Request $request)
+  {
+    $id = $request->id;
+    DB::table('packages_meta')->where('packages_meta_id', $id)->delete();
+  }
+
+  // @viewPackageData
+  public function viewPackageData(Request $request)
+  {
+    $id = $request->id;
+    $package = DB::table('packages')->where('packages_id', $id)->first();
+    $packageMetas = DB::table('packages_meta')->where('packages_meta_package_id', $id)->get();
+    return view('backend.packages.view-package-data-modal', compact('package', 'packageMetas'));
+  }
+
+  // @editPackageData
+  public function editPackageData(Request $request)
+  {
+    $id = $request->id;
+    $package = DB::table('packages')->where('packages_id', $id)->first();
+    $packageMetas = DB::table('packages_meta')->where('packages_meta_package_id', $id)->get();
+    return view('backend.packages.edit-package-data-modal', compact('package', 'packageMetas'));
+  }
 }
